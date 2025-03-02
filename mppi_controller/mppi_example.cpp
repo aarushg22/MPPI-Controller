@@ -59,9 +59,6 @@ int main() {
   odom.pose.position.x = 0.0;
   odom.pose.position.y = 0.0;
   odom.pose.orientation = 0.0;
-  odom.twist.linear_x = 0.0;
-  odom.twist.linear_y = 0.0;
-  odom.twist.angular_z = 0.0;
   odom.stamp = std::chrono::system_clock::now();
 
   // Compute velocity command
@@ -74,4 +71,3 @@ int main() {
 
   return 0;
 }
-path

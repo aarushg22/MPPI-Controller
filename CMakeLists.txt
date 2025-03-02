@@ -18,7 +18,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 set(WEBOTS_HOME "/usr/local/webots")
 # compile the mppi controller lib
-# add_subdirectory(mppi_controller)
+add_subdirectory(mppi_controller)
 
 # Include directories
 include_directories(
@@ -34,14 +34,18 @@ include_directories(
 )
 
 # Build the example executable
-add_executable(turtlebot3_ostacle_avoidance turtlebot3_ostacle_avoidance.cpp mppi_controller/src/mppi_controller.cpp)
-target_link_libraries(turtlebot3_ostacle_avoidance ${LIBRARIES})
-
-# target_link_libraries(turtlebot3_ostacle_avoidance PRIVATE mppi::mppi_controller)
-
+add_executable(turtlebot3_ostacle_avoidance turtlebot3_obstacle_avoidance.cpp)
+target_link_libraries(turtlebot3_ostacle_avoidance ${LIBRARIES} mppi_controller)
 
 # Installation
-install(TARGETS turtlebot3_ostacle_avoidance
-  DESTINATION bin
+install(TARGETS turtlebot3_ostacle_avoidance)
+
+# Custom command to copy the executable to the parent directory
+add_custom_command(TARGET turtlebot3_ostacle_avoidance POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  $<TARGET_FILE:turtlebot3_ostacle_avoidance>
+  ${CMAKE_CURRENT_SOURCE_DIR}/../
+  COMMENT "Copying turtlebot3_ostacle_avoidance to parent directory"
 )
+
 

@@ -19,9 +19,9 @@ struct Pose {
 };
 
 struct Twist {
-  double linear_x;
-  double linear_y;
-  double angular_z;
+  double linear_x = 0;
+  double linear_y = 0;
+  double angular_z = 0;
 };
 
 struct Path {
