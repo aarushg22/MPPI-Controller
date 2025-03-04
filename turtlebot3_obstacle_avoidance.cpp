@@ -1,8 +1,13 @@
 #include "mppi_controller.hpp"
 #include <cmath>
+#include <format>
 #include <iostream>
 #include <memory>
+#include <sstream>
+#include <string>
+#include <string_view>
 #include <vector>
+
 #include <webots/Lidar.hpp>
 #include <webots/Motor.hpp>
 #include <webots/Robot.hpp>
@@ -10,6 +15,7 @@
 
 #define TIME_STEP 64
 #define BASE_SPEED 1.5
+#define MAX_SPEED 6.5
 
 // Costmap parameters
 #define COSTMAP_SIZE 301 // Size of the costmap (301x301 grid for a larger area)
@@ -23,9 +29,26 @@
 #define WHEEL_RADIUS 0.033     // Radius of the wheels in meters
 #define WHEEL_SEPARATION 0.160 // Distance between the wheels in meters
 
+// Path visualization parameters
+#define PATH_MARKER_SIZE 0.05   // Size of path markers
+#define PATH_MARKER_HEIGHT 0.05 // Height of path markers above ground
+
 // World origin in costmap coordinates
 double world_origin_x = 0.0;
 double world_origin_y = 0.0;
+
+const static std::string cylinderShape =
+    "Shape { "
+    "  appearance Appearance { "
+    "    material Material { "
+    "      diffuseColor 1 0 0 " // Red color
+    "    } "
+    "  } "
+    "  geometry Cylinder { "
+    "    height 0.001 "
+    "    radius 0.025 "
+    "  } "
+    "}";
 
 void twist_to_wheel_speeds(double linear_velocity, double angular_velocity,
                            double &left_speed, double &right_speed) {
@@ -42,7 +65,6 @@ double gaussian(double x, double mu, double sigma) {
          std::exp(-((x - mu) * (x - mu)) / (2 * sigma * sigma));
 }
 
-
 void world_to_map(double world_x, double world_y, int &map_x, int &map_y) {
   map_x = static_cast<int>((world_x - world_origin_x) / COSTMAP_RESOLUTION);
   map_y = static_cast<int>((world_y - world_origin_y) / COSTMAP_RESOLUTION);
@@ -51,6 +73,75 @@ void world_to_map(double world_x, double world_y, int &map_x, int &map_y) {
 void map_to_world(int map_x, int map_y, double &world_x, double &world_y) {
   world_x = map_x * COSTMAP_RESOLUTION + world_origin_x;
   world_y = map_y * COSTMAP_RESOLUTION + world_origin_y;
+}
+
+void visualize_path(webots::Supervisor &robot, const Path &path) {
+  // Create an IndexedLineSet to draw lines between the poses
+  std::string lineSetCoords;
+  std::string lineSetIndices;
+
+  // Create a marker for each pose in the path
+  for (size_t i = 0; i < path.poses.size(); i++) {
+    robot.getRoot()
+        ->getField("children")
+        ->importMFNodeFromString(-1, "Transform {}");
+
+    // Retrieve the last added child (the newly created Transform node)
+    int childrenCount = robot.getRoot()->getField("children")->getCount();
+    webots::Node *marker =
+        robot.getRoot()->getField("children")->getMFNode(childrenCount - 1);
+
+    // Set the translation (position) of the marker
+    const double translation[3] = {path.poses[i].position.x,
+                                   path.poses[i].position.y, 0.01}; // (x, y, z)
+    marker->getField("translation")->setSFVec3f(translation);
+
+    // Set the rotation (orientation) of the marker
+    const double rotation[4] = {
+        0, 0, 1, path.poses[i].orientation}; // (axis_x, axis_y, axis_z, angle)
+    marker->getField("rotation")->setSFRotation(rotation);
+
+    // Add a Shape node to visualize the marker
+    marker->getField("children")->importMFNodeFromString(-1, cylinderShape);
+
+    lineSetCoords += std::to_string(path.poses[i].position.x) + " " +
+                     std::to_string(path.poses[i].position.y) + " 0.001, ";
+    if (i > 0) {
+      lineSetIndices +=
+          std::to_string(i - 1) + " " + std::to_string(i) + " -1, ";
+    }
+  }
+
+  // Remove the trailing comma and space
+  if (!lineSetCoords.empty()) {
+    lineSetCoords.erase(lineSetCoords.size() - 2);
+  }
+  if (!lineSetIndices.empty()) {
+    lineSetIndices.erase(lineSetIndices.size() - 2);
+  }
+
+  // Create the IndexedLineSet node
+  robot.getRoot()
+      ->getField("children")
+      ->importMFNodeFromString(
+          -1,
+          "Shape { "
+          "  appearance Appearance { "
+          "    material Material { "
+          "      diffuseColor 0 0 1 " // Blue color for the lines
+          "    } "
+          "  } "
+          "  geometry IndexedLineSet { "
+          "    coord Coordinate { "
+          "      point [ " +
+              lineSetCoords +
+              " ] "
+              "    } "
+              "    coordIndex [ " +
+              lineSetIndices +
+              " ] "
+              "  } "
+              "}");
 }
 
 void update_costmap(CostmapInfo &costmap, const float *lidar_values,
@@ -176,7 +267,7 @@ bool update_path(const double robot_x, const double robot_y, const double yaw,
       while (yaw_diff > M_PI) {
         yaw_diff -= 2.0 * M_PI;
       }
-      if (std::abs(yaw_diff) < 0.1) {
+      if (std::abs(yaw_diff) < 0.25) {
         std::cout << "Robot reached" << path.poses[0].position.x << " "
                   << path.poses[0].position.y << std::endl;
         // Remove the first pose from the path
@@ -188,27 +279,27 @@ bool update_path(const double robot_x, const double robot_y, const double yaw,
   return false;
 }
 
-int main(int argc, char **argv) {
+int main() {
   // Create MPPI parameters
   MPPIParams params;
-  params.batch_size = 1000;
-  params.time_steps = 20;
-  params.model_dt = 0.1;
-  params.obstacle_cost_weight = 1.0;
-  params.path_cost_weight = 1.0;
-  params.smoothness_cost_weight = 0.1;
-  params.goal_cost_weight = 0.5;
-  params.temperature = 0.5;
-  params.gamma = 0.9;
+  params.batch_size = 2000;
+  params.time_steps = 56;
+  params.model_dt = 0.05;
+  params.obstacle_cost_weight = 0.1;
+  params.path_cost_weight = 0.05;
+  params.smoothness_cost_weight = 1;
+  params.goal_cost_weight = 5.0;
+  params.temperature = 0.1;
+  params.gamma = 0.015;
   params.noise_variance = 0.1;
-  params.vx_max = 0.3;
-  params.vx_min = -0.3;
-  params.vy_max = 0.3;
-  params.vy_min = -0.3;
-  params.wz_max = 1.0;
-  params.wz_min = -1.0;
-  params.vx_rate_limit = 0.05;
-  params.vy_rate_limit = 0.05;
+  params.vx_max = 0.4;
+  params.vx_min = -0.4;
+  params.vy_max = 0.4;
+  params.vy_min = -0.4;
+  params.wz_max = 1.9;
+  params.wz_min = -1.9;
+  params.vx_rate_limit = 0.1;
+  params.vy_rate_limit = 0.1;
   params.wz_rate_limit = 0.1;
 
   // Initialize controller
@@ -273,17 +364,17 @@ int main(int argc, char **argv) {
   Path path;
   Pose pose;
   pose.position.x = initial_position[0];
-  pose.position.y = initial_position[2]; // Z in Webots is Y in our 2D map
+  pose.position.y = initial_position[1]; // Z in Webots is Y in our 2D map
   pose.orientation = robot_yaw;
   path.poses.push_back(pose);
   Pose pose2;
   pose2.position.x = initial_position[0] + 1;
-  pose2.position.y = initial_position[2]; // Z in Webots is Y in our 2D map
+  pose2.position.y = initial_position[1]; // Z in Webots is Y in our 2D map
   pose2.orientation = robot_yaw;
   path.poses.push_back(pose2);
   Pose pose3;
   pose3.position.x = initial_position[0] + 2;
-  pose3.position.y = initial_position[2]; // Z in Webots is Y in our 2D map
+  pose3.position.y = initial_position[1]; // Z in Webots is Y in our 2D map
   pose3.orientation = robot_yaw;
   path.poses.push_back(pose3);
 
@@ -297,11 +388,14 @@ int main(int argc, char **argv) {
   // near the center
   world_origin_x =
       initial_position[0] - (COSTMAP_SIZE * COSTMAP_RESOLUTION / 2);
-  world_origin_y = initial_position[2] - (COSTMAP_SIZE * COSTMAP_RESOLUTION /
+  world_origin_y = initial_position[1] - (COSTMAP_SIZE * COSTMAP_RESOLUTION /
                                           2); // Z in Webots is Y in our 2D map
 
+  // Visualize the path
+  visualize_path(robot, path);
+
   int step_counter = 0;
-  int costmap_display_interval = 50; // Save costmap every 50 steps
+  int costmap_display_interval = 30; // Save costmap every 50 steps
 
   while (robot.step(TIME_STEP) != -1) {
     double left_speed = BASE_SPEED, right_speed = BASE_SPEED;
@@ -309,7 +403,7 @@ int main(int argc, char **argv) {
     // Get current robot position
     const double *position = robot_node->getPosition();
     double robot_x = position[0];
-    double robot_y = position[2]; // Z in Webots is Y in our map
+    double robot_y = position[1]; // Z in Webots is Y in our map
     update_path(robot_x, robot_y, robot_yaw, path);
 
     // Get robot position in costmap coordinates
@@ -333,7 +427,7 @@ int main(int argc, char **argv) {
 
     // Periodically save and display the costmap
     if (step_counter % costmap_display_interval == 0) {
-      display_costmap_section(costmap, robot_map_x, robot_map_y, 34);
+      display_costmap_section(costmap, robot_map_x, robot_map_y, 25);
       std::cout << "Robot position (world): x=" << robot_x << ", y=" << robot_y
                 << std::endl;
       std::cout << "Robot position (map): x=" << robot_map_x
@@ -380,7 +474,6 @@ int main(int argc, char **argv) {
     right_motor->setVelocity(right_speed);
 
     step_counter++;
-
   }
 
   return 0;

@@ -6,6 +6,8 @@ This repository contains the code for a TurtleBot3 robot to navigate and avoid o
 
 This project implements an MPPI controller for the TurtleBot3 Burger robot in the Webots simulator. The robot is equipped with a lidar sensor to perceive the environment and build a local costmap. The MPPI controller uses this costmap to calculate optimal velocity commands to navigate the environment while avoiding obstacles. The goal of this controller is to go to a defined path.
 
+![demo](mppi_demo-2025-03-05_00.12.04.gif)
+
 ## Features
 
 *   **MPPI Controller:** Implements a Model Predictive Path Integral controller for motion planning.
@@ -51,7 +53,7 @@ The generated binary should be copied out to the parent directory containing the
 ### Running the Simulation
 
 1. Open Webots: Launch the Webots simulator.
-2. Open a TurtleBot3 world: You'll need to have a Webots world with a TurtleBot3 robot and obstacles. You can create one from scratch or use an existing example world. If you use the example world, then you'll have to copy it out to a place in your filesystem.
+2. Open a TurtleBot3 world: You'll need to have a Webots world with a TurtleBot3 Lidar robot and obstacles. You can create one from scratch or use an existing example world. If you use the example world, then you'll have to copy it out to a place in your filesystem.
 3. Set the controller: Go to the controller folder of where you created your new world in the previous step and clone this repo here.
 4. Start the simulation: Run the simulation in Webots.
 
